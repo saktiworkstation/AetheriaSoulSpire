@@ -27,3 +27,6 @@ Thumbs.db
 # --- Backup Files ---
 *.bak
 *.tmp
+
+# --- Argon Specific ---
+.argon/
