@@ -1,0 +1,29 @@
+# --- Roblox Project Files ---
+# Abaikan semua file hasil build (binary/xml)
+*.rbxl
+*.rbxlx
+
+# Kecuali jika Anda memang menyimpan file layout UI di sini (jarang dipakai di Rojo murni)
+# !ui.rbxl
+
+# default.project.json
+
+# --- Temporary / Lock Files ---
+*.lock
+sourcemap.json
+
+# --- Package Manager (Wally) ---
+Packages/
+ServerPackages/
+_Index/
+
+# --- OS & Tooling ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log
+
+# --- Backup Files ---
+*.bak
+*.tmp
