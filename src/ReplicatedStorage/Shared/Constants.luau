@@ -1,5 +1,5 @@
 --[[
-	Constants.lua
+	Constants.luau
 	
 	Berisi semua nilai constant yang digunakan di seluruh game.
 	File ini adalah SINGLE SOURCE OF TRUTH untuk semua nilai yang tidak berubah.

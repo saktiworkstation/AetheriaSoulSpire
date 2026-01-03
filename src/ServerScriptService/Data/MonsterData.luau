@@ -1,5 +1,5 @@
 --[[
-	MonsterData.lua
+	MonsterData.luau
 	
 	Centralized database untuk semua monster definitions di game.
 	

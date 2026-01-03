@@ -1,5 +1,5 @@
 --[[
-	FormulaCalculator.lua
+	FormulaCalculator.luau
 	
 	Centralized calculation module untuk semua mathematical formulas di game.
 	Semua perhitungan game (damage, XP, stats, scaling) ada di sini.

@@ -1,5 +1,5 @@
 --[[
-	BalanceConfig.lua
+	BalanceConfig.luau
 	
 	Berisi semua nilai numerik untuk game balancing.
 	File ini MUDAH DI-TWEAK tanpa mengubah core logic.

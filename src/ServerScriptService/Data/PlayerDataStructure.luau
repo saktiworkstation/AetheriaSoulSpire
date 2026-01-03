@@ -1,5 +1,5 @@
 --[[
-	PlayerDataStructure.lua
+	PlayerDataStructure.luau
 	
 	Template dan helper functions untuk Player Data structure.
 	Ini adalah "blueprint" untuk semua player data yang disimpan di DataStore.
