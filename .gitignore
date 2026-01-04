@@ -30,3 +30,8 @@ Thumbs.db
 
 # --- Argon Specific ---
 .argon/
+
+# Wally
+Packages/
+wally.lock
+wally.exe
