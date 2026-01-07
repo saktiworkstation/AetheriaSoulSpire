@@ -46,22 +46,25 @@ local CONFIG = {
 	-- DataStore settings
 	DATASTORE_NAME = Constants.DATASTORE_NAME,
 	AUTO_SAVE_INTERVAL = Constants.AUTO_SAVE_INTERVAL, -- 5 minutes (300 seconds)
-	
+
+	-- Studio Mock Mode (untuk menghindari session lock issues di Studio)
+	USE_MOCK_DATA_IN_STUDIO = true, -- Set false untuk test real DataStore di Studio
+
 	-- Session lock settings
-	SESSION_LOCK_TIMEOUT = 300, -- 5 minutes (best practice)
-	SESSION_LOCK_RETRY_ATTEMPTS = 5,
-	SESSION_LOCK_RETRY_DELAY = 3, -- 3 seconds between retries
-	
+	SESSION_LOCK_TIMEOUT = 30, -- Reduced to 30 seconds for faster recovery
+	SESSION_LOCK_RETRY_ATTEMPTS = 3, -- Reduced attempts for faster feedback
+	SESSION_LOCK_RETRY_DELAY = 2, -- 2 seconds between retries
+
 	-- Save/Load retry settings
 	SAVE_RETRY_ATTEMPTS = 5,
 	SAVE_RETRY_DELAY = 2, -- 2 seconds between retries
 	LOAD_RETRY_ATTEMPTS = 3,
-	LOAD_RETRY_DELAY = 3,
-	
+	LOAD_RETRY_DELAY = 2, -- Reduced from 3 to 2
+
 	-- Rate limiting (Roblox DataStore limits)
 	RATE_LIMIT_WINDOW = 60, -- 1 minute
 	RATE_LIMIT_MAX_REQUESTS = 60, -- Base limit (will scale with player count)
-	
+
 	-- Debug
 	DEBUG_MODE = Constants.DEBUG_MODE,
 	VERBOSE_LOGGING = true, -- Extra detailed logs
@@ -71,8 +74,12 @@ local CONFIG = {
 -- STATE MANAGEMENT
 -- ═══════════════════════════════════════════════════════════════════════════
 
+local IS_STUDIO = RunService:IsStudio()
+local USE_MOCK_MODE = IS_STUDIO and CONFIG.USE_MOCK_DATA_IN_STUDIO
+
 local ProfileStore = nil -- ProfileService store
-local LoadedProfiles = {} -- [Player] = Profile
+local LoadedProfiles = {} -- [Player] = Profile or MockProfile
+local MockDataStore = {} -- [UserId] = Data (for Studio mock mode)
 local SaveQueue = {} -- Players waiting for save
 local RateLimitTracker = {
 	RequestCount = 0,
@@ -176,25 +183,79 @@ local function notifyPlayer(player, messageType, data)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════
+-- MOCK DATA SYSTEM (for Studio testing)
+-- ═══════════════════════════════════════════════════════════════════════════
+
+--[[
+	Create a mock profile that mimics ProfileService API
+]]
+local function createMockProfile(userId)
+	local data = PlayerDataStructure.GetDefaultData(userId)
+
+	local mockProfile = {
+		Data = data,
+		MetaData = {
+			ProfileCreateTime = os.time(),
+			SessionLoadCount = 1,
+			ActiveSession = nil,
+		},
+		GlobalUpdates = {},
+		_isReleased = false,
+	}
+
+	-- Mock methods
+	function mockProfile:IsActive()
+		return not self._isReleased
+	end
+
+	function mockProfile:Reconcile()
+		-- Mock reconciliation (do nothing in mock mode)
+	end
+
+	function mockProfile:ListenToRelease(callback)
+		-- Mock release listener (store callback but never call in mock mode)
+		self._releaseCallback = callback
+	end
+
+	function mockProfile:Release()
+		self._isReleased = true
+		debugPrint("MockProfile released", "INFO")
+	end
+
+	function mockProfile:AddUserId(_userId)
+		-- Mock AddUserId for GDPR compliance (do nothing in mock mode)
+	end
+
+	return mockProfile
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════
 -- PROFILESERVICE SETUP
 -- ═══════════════════════════════════════════════════════════════════════════
 
 --[[
-	Initialize ProfileService store
+	Initialize ProfileService store (or Mock Mode)
 ]]
 function DataManager.InitializeStore()
+	if USE_MOCK_MODE then
+		debugPrint("⚠️ MOCK MODE ENABLED - Using in-memory data storage", "WARN")
+		debugPrint("Data will NOT persist between sessions!", "WARN")
+		debugPrint("Set USE_MOCK_DATA_IN_STUDIO = false to use real DataStore", "INFO")
+		return true
+	end
+
 	debugPrint("Initializing ProfileService store...")
-	
+
 	-- Create ProfileStore
 	local profileTemplate = PlayerDataStructure.GetDefaultData(0) -- Use 0 as template
-	
+
 	ProfileStore = ProfileService.GetProfileStore(
 		CONFIG.DATASTORE_NAME,
 		profileTemplate
 	)
-	
+
 	debugPrint("ProfileService store initialized: " .. CONFIG.DATASTORE_NAME, "INFO")
-	
+
 	return ProfileStore ~= nil
 end
 
@@ -213,25 +274,48 @@ function DataManager.LoadPlayerData(player)
 		debugPrint("Invalid player for LoadPlayerData", "ERROR")
 		return nil
 	end
-	
+
 	local userId = player.UserId
 	local profileKey = "Player_" .. userId
-	
+
 	debugPrint(string.format("Loading data for %s (UserId: %d)", player.Name, userId), "INFO")
-	
+
 	-- Show loading screen to player
 	notifyPlayer(player, "DataLoaded", {Status = "Loading"})
-	
-	-- Attempt to load profile with retry
+
+	-- MOCK MODE: Create in-memory profile
+	if USE_MOCK_MODE then
+		debugPrint(string.format("📦 Mock Mode: Creating in-memory profile for %s", player.Name), "INFO")
+
+		-- Check if we have existing mock data for this user
+		local existingData = MockDataStore[userId]
+		local profile = createMockProfile(userId)
+
+		if existingData then
+			profile.Data = existingData
+			debugPrint(string.format("✅ Loaded existing mock data for %s", player.Name), "INFO")
+		else
+			MockDataStore[userId] = profile.Data
+			debugPrint(string.format("✅ Created new mock data for %s", player.Name), "INFO")
+		end
+
+		-- Store profile and notify
+		LoadedProfiles[player] = profile
+		notifyPlayer(player, "DataLoaded", {Status = "Success"})
+
+		return profile
+	end
+
+	-- REAL MODE: Use ProfileService
 	local profile = nil
 	local attempts = 0
 	local maxAttempts = CONFIG.LOAD_RETRY_ATTEMPTS
-	
+
 	while attempts < maxAttempts and not profile do
 		attempts += 1
-		
+
 		verboseLog(string.format("Load attempt %d/%d for %s", attempts, maxAttempts, player.Name))
-		
+
 		-- Check rate limit
 		local allowed, reason = checkRateLimit()
 		if not allowed then
@@ -239,10 +323,10 @@ function DataManager.LoadPlayerData(player)
 			task.wait(CONFIG.LOAD_RETRY_DELAY)
 			continue
 		end
-		
+
 		-- Attempt load
 		profile = ProfileStore:LoadProfileAsync(profileKey)
-		
+
 		if profile then
 			-- Success!
 			debugPrint(string.format("Profile loaded successfully for %s", player.Name), "INFO")
@@ -250,7 +334,7 @@ function DataManager.LoadPlayerData(player)
 		else
 			-- Failed - retry
 			debugPrint(string.format("Load failed for %s (attempt %d/%d)", player.Name, attempts, maxAttempts), "WARN")
-			
+
 			if attempts < maxAttempts then
 				task.wait(CONFIG.LOAD_RETRY_DELAY)
 			end
