@@ -467,3 +467,6 @@ end
 -- ═══════════════════════════════════════════════════════════════════════════
 
 safeInitialize()
+
+-- Return empty table to satisfy module requirement
+return {}
